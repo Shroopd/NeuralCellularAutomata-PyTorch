@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from NeuralCellularAutomata_PyTorch.custom_attention import (
-    CustomAttention,
+    # CustomAttention,
     Conv2DAttention,
 )
 
@@ -152,43 +152,17 @@ def alive(x, threshold=0.1):
 # %%
 #| export
 class CAModel(nn.Module):
-    def __init__(self, channel_n, update_rate=0.5):
+    def __init__(self, channel_n, attention: Conv2DAttention, brain):
         super().__init__()
 
         self.channel_n = channel_n
-        self.update_rate = update_rate
+        # self.update_rate = update_rate
 
-        self.brain = nn.Sequential(
-            nn.Linear(self.channel_n, self.channel_n * 2, False),  # pixel-wise mlp
-            nn.SiLU(),
-            nn.Linear(self.channel_n * 2, self.channel_n * 2, False),  # pixel-wise mlp
-            nn.SiLU(),
-            nn.Linear(self.channel_n * 2, self.channel_n, False),
-            # nn.Conv2d(channel_n * 3, 128, kernel_size=1),  # pixel-wise mlp
-            # nn.SiLU(),
-            # nn.Conv2d(128, self.channel_n, kernel_size=1, bias=False),
-            # nn.Linear(self.channel_n * 2, self.channel_n * 2, False),  # pixel-wise mlp
-            # nn.SiLU(),
-            # nn.Linear(self.channel_n * 2, self.channel_n * 4, False),  # pixel-wise mlp
-            # nn.SiLU(),
-            # nn.Linear(self.channel_n * 2, self.channel_n * 2, False),  # pixel-wise mlp
-            # nn.SiLU(),
-            # nn.Linear(self.channel_n, self.channel_n, False),  # pixel-wise mlp
-            # nn.SiLU(),
-            # nn.Tanh()
-        )
+        self.brain = brain
 
         # NOTE: changed stuff here
         # heads = int(channel_n**(2/3) + 0.5)
-        attention_n = int(channel_n ** (1 / 2) + 0.5)
-        heads = int(channel_n ** (1 / 2) + 0.5)
-        compress_n = int(channel_n ** (1 / 2) + 0.5)
-
-        print(heads, channel_n, attention_n, compress_n)
-
-        foo = CustomAttention(heads, channel_n, attention_n, compress_n)
-        self.attention = Conv2DAttention(foo)
-        # self.attention = Conv2DAttention()
+        self.attention = attention
 
         # this network is used to calculate the change of the features, so initially, we dont want to suggest any changes
         # thus we set the output weights to zero
