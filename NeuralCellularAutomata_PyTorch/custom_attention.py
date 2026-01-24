@@ -47,23 +47,26 @@ def make_weight(*dims: int):
     return Parameter(F.normalize(torch.randn(dims), dim=-2))
 
 
-
 class CustomAttention(nn.Module):
     """One query vector per operation"""
 
-    def __init__(self, heads: int, token_size: int, attention_size: int) -> None:
+    def __init__(self, heads: int, token_size: int, attention_size: int, compress_size: int) -> None:
         super().__init__()
 
         # should preserve 0s
-        self.key_transform = make_weight(heads, token_size, attention_size)
+        self.key_down = make_weight(heads, token_size, attention_size)
 
         # should NOT preserve 0s
-        self.query_transform = make_weight(heads, token_size, attention_size)
+        self.query_down = make_weight(heads, token_size, attention_size)
         self.query_bias = make_weight(heads, 1, attention_size)
 
         # should preserve 0s
-        self.value_down = make_weight(heads, token_size, attention_size)
-        self.value_up = make_weight(heads, attention_size, token_size)
+        self.compress = token_size > compress_size * 2
+        if self.compress:
+            self.value_down = make_weight(heads, token_size, compress_size)
+            self.value_up = make_weight(heads, compress_size, token_size)
+        else:
+            self.value_over = make_weight(heads,token_size,token_size)
 
     def forward(
         self,
@@ -84,18 +87,18 @@ class CustomAttention(nn.Module):
         # print("C",keys.shape, query.transpose(-2, -1).shape)
 
         key_tokens = key_tokens.unsqueeze(-3)
-        # print(key_tokens.shape, "K")
-        keys = key_tokens @ self.key_transform
-        # print(keys.shape, "K")
+        # print(key_tokens.shape, "KT")
+        keys = key_tokens @ self.key_down
+        # print(keys.shape, "KA")
 
         query_token = query_token.unsqueeze(-3)
 
-        # print(query_token.shape, "Q")
-        query = query_token @ self.query_transform
-        # print(query.shape, "Q")
+        # print(query_token.shape, "QT")
+        query = query_token @ self.query_down
+        # print(query.shape, "QA)
 
         query = query + self.query_bias
-        # print(query.shape, "Q")
+        # print(query.shape, "QA+B")
 
         attention = swishmax(keys @ query.transpose(-2, -1), dim=-2)
 
@@ -107,16 +110,28 @@ class CustomAttention(nn.Module):
         value_shift = values_scaled.sum(-3)
         # print(value_shift.shape, "VSH")
 
-        value_shift @= self.value_down
-        value_shift @= self.value_up
+        if self.compress:
+            value_shift @= self.value_down
+            value_shift @= self.value_up
+        else:
+            value_shift @= self.value_over
         # print(value_shift.shape, "VSH")
 
         value_shift = value_shift.sum(-3)
         # print(value_shift.shape, "VSH")
 
         # print(query_token.shape,"QT")
-        
-        return query_token.squeeze(-2).squeeze(-2) + value_shift.squeeze(-2).squeeze(-2)
+
+        # update = query_token.squeeze(-2).squeeze(-2) + (
+        #     value_shift.squeeze(-2).squeeze(-2)
+        # )
+        update = value_shift.squeeze(-2).squeeze(-2)
+
+        # print(update.shape, "U")
+
+        # update = update / (torch.linalg.vector_norm(update, dim=-1, keepdim=True) + 1)
+
+        return update
 
 
 class Conv2DAttention(nn.Module):
@@ -148,6 +163,8 @@ class Conv2DAttention(nn.Module):
 
         keys = keys.movedim(1, -1)
         query = query.movedim(1, -1)
+
+        # print(keys,query)
 
         outs = self.attention.forward(keys, query)
 
